@@ -14,9 +14,11 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from selenium.webdriver.common.by import By
 
+import smtplib
+
+import os
+
 # Log outcome to text file every time the program is run
-
-
 def log(message):
     # Current date and time
     dt = datetime.datetime.now()
@@ -27,8 +29,6 @@ def log(message):
         f_out.write(f'{dt_format} {message}\n')
 
 # Check if an internet connection is present
-
-
 def is_connected():
     # Write to log file
     with open('log.txt', 'a', encoding='utf-8') as f_out:
@@ -46,7 +46,7 @@ def is_connected():
 
     return False
 
-
+# Check for relevant roles on the webpage
 def check_relevant_roles():
     site_url = 'https://langara.wd10.myworkdayjobs.com/External_Employment_Opportunities'
 
@@ -56,8 +56,7 @@ def check_relevant_roles():
     wd.get(site_url)
 
     # Wait for dynamically loaded elements
-    WebDriverWait(wd, 10).until(EC.visibility_of_element_located(
-        (By.ID, "wd-FacetedSearchResultList-facetSearchResultList.newFacetSearch.Report_Entry")))
+    WebDriverWait(wd, 10).until(EC.visibility_of_element_located((By.ID, "wd-FacetedSearchResultList-facetSearchResultList.newFacetSearch.Report_Entry")))
 
     # Fetch and parse HTML content
     log('Fetching and parsing HTML...')
@@ -67,29 +66,81 @@ def check_relevant_roles():
 
     # Get relevant jobs
     log('Looking for relevant jobs...')
-    job_soup = soup.find('div', {
-                         'id': 'wd-FacetedSearchResultList-facetSearchResultList.newFacetSearch.Report_Entry'})
+    job_soup = soup.find('div', {'id': 'wd-FacetedSearchResultList-facetSearchResultList.newFacetSearch.Report_Entry'})
 
     roles_soup = job_soup.find_all('div', class_='gwt-Label')
 
     roles = []
     for role in roles_soup:
-        # if(('WOC' in role.get_text() and '2021' in role.get_text()) or ('SWAP' in role.get_text() and '2021' in role.get_text())):
-        if('Instructor' in role.get_text()):
+        if(('WOC' in role.get_text() and '2021' in role.get_text()) or ('SWAP' in role.get_text() and '2021' in role.get_text())):
             roles.append(role.get_text())
 
     return(roles)
 
+# Send mail
+def send_mail(relevant_roles, status):
+
+    # Current date and time
+    dt = datetime.datetime.now()
+    dt_format = dt.strftime('%B %d, %Y (%A) at %H:%M')
+
+    # Get username and password
+    user = os.environ.get('EMAIL_USER')
+    pwd = os.environ.get('EMAIL_PASS')
+
+    # Set up connection
+    server = smtplib.SMTP('smtp.gmail.com', 587)
+    server.ehlo()
+    server.starttls()
+    server.ehlo()
+
+    # Login
+    server.login(user, pwd)
+
+    subject = 'Langara WAC/SWAP Applications Open'
+
+    # Check status and prepare body
+    if(status == 'success'):
+
+        log('Preparing body for success mail...')
+
+        body = f'The following job openings were found on {dt_format}:'
+        body += '\n----------------------------------------------------------------------------------------------------------------------------------------'
+        for index, role in enumerate(relevant_roles):
+            body += f'\n{index + 1}. {role}'
+        body += '\n----------------------------------------------------------------------------------------------------------------------------------------'
+
+    # Error message
+    else:
+
+        log('Preparing mail body for error mail...')
+
+        body = f'Error: {status}.\nCheck your code.'
+
+    # Prepare mail
+    message = f'Subject: {subject}\n\n{body}'
+    message = message.encode('utf-8')
+
+    # Send mail
+    server.sendmail(user, user, message)
+
+    log('Mail sent!')
+
+    # End connection
+    server.quit()
+
 
 if(is_connected()):
     try:
-        log('Internet connection available.')
+        log('Internet connection available')
         relevant_roles = check_relevant_roles()
 
         if(relevant_roles):
-            log(f'{len(relevant_roles)} relevant roles(s) found.')
+            log(f'{len(relevant_roles)} relevant roles(s) found')
 
             # Send mail
+            log('Sending mail...')
+            send_mail(relevant_roles, 'success')
 
         else:
             log('No relevant roles found')
@@ -97,11 +148,13 @@ if(is_connected()):
     except Exception as e:
         log(f'Error: {str(e)}.')
 
-        # try:
-        # Send error mail
+        try:
+            # Send error mail
+            send_mail([], str(e))
 
         # If error mail cant be sent
-        # except Exception as e:
+        except Exception as e:
+            log(f'Mail could not be sent. Error: {str(e)}.')
 
 else:
-    log('No internet connection.')
+    log('No internet connection')
